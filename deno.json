@@ -1,0 +1,10 @@
+{
+  "imports": {
+    "@doist/todoist-api-typescript": "npm:@doist/todoist-api-typescript@5.1.2"
+  },
+  "tasks": {
+    "run": "deno run --allow-net --allow-env main.ts",
+    "test": "deno test --allow-net --allow-env",
+    "check": "deno check main.ts test.ts"
+  }
+}
