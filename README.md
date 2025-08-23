@@ -50,6 +50,20 @@ deno task test
 deno task check
 ```
 
+## Docker
+
+Build the image:
+```bash
+docker build -t todoist-recent .
+```
+
+Run the container:
+```bash
+docker run --rm -e TODOIST_TOKEN="your_token" todoist-recent
+```
+
+Set up a cron job on your server to run this command on your desired schedule.
+
 ## Configuration
 
 You can modify these constants in `main.ts` to customize the behavior:
