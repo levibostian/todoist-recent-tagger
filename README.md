@@ -108,21 +108,25 @@ Both services can be configured by modifying constants in their respective `main
 
 ## Development
 
-### Setup Development Environment
+### Webhook application 
+
+While you can build the docker container and run it, running with Deno is going to increase your feedback loop speed.
 
 ```bash
-# Clone and setup
-git clone <repository-url>
-cd todoist-recent
+$> cd webhook 
 
-# Setup webhook service
-cd webhook
-deno cache deno.json
-
-# Setup maintainer service  
-cd ../maintainer
-deno cache deno.json
+$> TODOIST_TOKEN="<your token here>" \
+CLIENT_SECRET="<your secret here>" \
+deno task run 
 ```
+
+Now that the application is running, setup a public tunnel so the Todoist API can talk to your local application. Use something like ngrok or cloudflared. 
+
+```bash 
+$> cloudflared tunnel --url localhost:8000
+```
+
+Lastly, update your Todoist application webhook URL to point to the public tunnel URL.
 
 ### Running Tests
 
