@@ -175,10 +175,29 @@ async function addRecentlyUpdatedLabel(taskId: string) {
 }
 
 /**
+ * Check if a task is a subtask (has a parent)
+ * Note: Webhook payload uses snake_case (parent_id) while TypeScript types use camelCase (parentId)
+ */
+function isSubtask(task: Task): boolean {
+  // Check both possible field names since webhook payload might use snake_case
+  const taskData = task as Task & { parent_id?: string | null };
+  const parentId = task.parentId || taskData.parent_id;
+  const hasParent = parentId !== null && parentId !== undefined;
+  return hasParent;
+}
+
+/**
  * Handle webhook payload
  */
 async function handleWebhook(payload: WebhookPayload) {
   console.log(`Received webhook event: ${payload.event_name} for task ${payload.event_data.id}`);
+  console.log(`Task data:`, JSON.stringify(payload.event_data, null, 2));
+  
+  // Completely ignore subtasks
+  if (isSubtask(payload.event_data)) {
+    console.log(`Ignoring subtask ${payload.event_data.id}: "${payload.event_data.content}"`);
+    return;
+  }
   
   switch (payload.event_name) {
     case "item:added":
