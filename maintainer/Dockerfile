@@ -1,34 +1,38 @@
-# Build stage - compile Deno to binary
-FROM denoland/deno:2.1.4 AS builder
+# Builder stage
+FROM denoland/deno:2.4.2 AS builder
 
-# Set working directory
+# Create app directory
 WORKDIR /app
 
-# Copy source files
-COPY deno.json deno.lock ./
+# Copy dependency files first for better caching
+COPY deno.json ./
+COPY deno.lock ./
+
+# Copy source code
 COPY main.ts ./
 
-# Cache dependencies and check types
-RUN deno cache main.ts
+# Compile the application to a binary
+RUN deno task compile
 
-# Compile to binary
-RUN deno compile \
-    --allow-net \
-    --allow-env \
-    --output todoist-recent \
-    main.ts
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
 
-# Runtime stage - minimal image with just the binary
-FROM debian:bookworm-slim
+# Create app directory
+WORKDIR /app
 
-# Copy the compiled binary from the builder stage
-COPY --from=builder /app/todoist-recent /usr/local/bin/todoist-recent
+# Create a non-root user to run our application
+RUN groupadd --gid 1001 todoistmaintainer \
+  && useradd --uid 1001 --gid todoistmaintainer --shell /bin/bash --create-home todoistmaintainer \
+  && chown -R todoistmaintainer:todoistmaintainer /app
 
-# Make the binary executable
-RUN chmod +x /usr/local/bin/todoist-recent
+# Copy the compiled binary from builder stage
+COPY --from=builder /app/todoist-recent ./todoist-recent
 
-# Set environment variable
-ENV TODOIST_TOKEN=""
+# Make binary executable and change ownership
+RUN chmod +x ./todoist-recent && chown todoistmaintainer:todoistmaintainer ./todoist-recent
 
-# Run the binary directly
-ENTRYPOINT ["/usr/local/bin/todoist-recent"]
+# Switch to non-root user
+USER todoistmaintainer
+
+# Run the compiled binary
+CMD ["./todoist-recent"]
