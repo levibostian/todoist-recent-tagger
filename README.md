@@ -128,6 +128,14 @@ $> cloudflared tunnel --url localhost:8000
 
 Lastly, update your Todoist application webhook URL to point to the public tunnel URL.
 
+### Maintainer application 
+
+```bash 
+$> cd maintainer
+$> docker build -t todoist-maintainer .
+$> docker run --rm -e TODOIST_TOKEN="<your token here>" todoist-maintainer
+```
+
 ### Running Tests
 
 At this time, testing of this application is done by running the server and QA testing using the Todoist API. 
