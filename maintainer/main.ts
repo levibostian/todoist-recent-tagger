@@ -3,15 +3,6 @@
 import { TodoistApi } from "@doist/todoist-api-typescript";
 import type { Task, Label } from "@doist/todoist-api-typescript";
 
-// Type definitions for better type safety
-interface TaskUpdateInfo {
-  task: Task;
-  shouldHaveCreatedLabel: boolean;
-  shouldHaveUpdatedLabel: boolean;
-  currentlyHasCreatedLabel: boolean;
-  currentlyHasUpdatedLabel: boolean;
-}
-
 // Configuration constants
 export const RECENTLY_CREATED_LABEL = "recently created";
 export const RECENTLY_UPDATED_LABEL = "recently updated";
@@ -33,10 +24,11 @@ if (TODOIST_TOKEN) {
 }
 
 /**
- * Main function to update task labels based on recent activity
+ * Main function to remove task labels based on recent activity
+ * Note: Label addition is now handled by the webhook service
  */
 export async function main() {
-  console.log("Starting Todoist recent tasks labeling process...");
+  console.log("Starting Todoist recent tasks label cleanup process...");
   
   if (!api) {
     throw new Error("Todoist API client not initialized. Please set TODOIST_TOKEN environment variable.");
@@ -49,166 +41,116 @@ export async function main() {
     
     console.log(`Threshold for recent tasks: ${recentThreshold.toISOString()}`);
     
-    // Fetch labels first to ensure our required labels exist
+    // Fetch labels to ensure our required labels exist
     console.log("Fetching labels...");
     const labelsResponse = await api.getLabels();
     const labels = labelsResponse.results;
     
-    // Find or create the required labels
-    let recentlyCreatedLabel = labels.find((label: Label) => label.name === RECENTLY_CREATED_LABEL);
-    let recentlyUpdatedLabel = labels.find((label: Label) => label.name === RECENTLY_UPDATED_LABEL);
+    // Find the required labels
+    const recentlyCreatedLabel = labels.find((label: Label) => label.name === RECENTLY_CREATED_LABEL);
+    const recentlyUpdatedLabel = labels.find((label: Label) => label.name === RECENTLY_UPDATED_LABEL);
     
-    if (!recentlyCreatedLabel) {
-      console.log(`Creating "${RECENTLY_CREATED_LABEL}" label...`);
-      recentlyCreatedLabel = await api.addLabel({ name: RECENTLY_CREATED_LABEL });
+    if (!recentlyCreatedLabel && !recentlyUpdatedLabel) {
+      console.log("No recent labels found to manage. Nothing to do.");
+      return;
     }
     
-    if (!recentlyUpdatedLabel) {
-      console.log(`Creating "${RECENTLY_UPDATED_LABEL}" label...`);
-      recentlyUpdatedLabel = await api.addLabel({ name: RECENTLY_UPDATED_LABEL });
+    // Get tasks that currently have recent labels
+    const tasksToCheck = new Map<string, Task>();
+    
+    if (recentlyCreatedLabel) {
+      console.log(`Fetching tasks with "${RECENTLY_CREATED_LABEL}" label...`);
+      const currentlyCreatedTasksResponse = await api.getTasks({ label: RECENTLY_CREATED_LABEL });
+      const currentlyCreatedTasks = currentlyCreatedTasksResponse.results;
+      currentlyCreatedTasks.forEach((task: Task) => {
+        tasksToCheck.set(task.id, task);
+      });
     }
     
-    // Strategy: Use API filtering for performance - avoid fetching all tasks
-    console.log("Processing tasks with targeted API queries...");
+    if (recentlyUpdatedLabel) {
+      console.log(`Fetching tasks with "${RECENTLY_UPDATED_LABEL}" label...`);
+      const currentlyUpdatedTasksResponse = await api.getTasks({ label: RECENTLY_UPDATED_LABEL });
+      const currentlyUpdatedTasks = currentlyUpdatedTasksResponse.results;
+      currentlyUpdatedTasks.forEach((task: Task) => {
+        tasksToCheck.set(task.id, task);
+      });
+    }
     
-    // 1. Get tasks that currently have the "recently created" label
-    console.log(`Fetching tasks with "${RECENTLY_CREATED_LABEL}" label...`);
-    const currentlyCreatedTasksResponse = await api.getTasks({ label: RECENTLY_CREATED_LABEL });
-    const currentlyCreatedTasks = currentlyCreatedTasksResponse.results;
+    console.log(`Found ${tasksToCheck.size} tasks with recent labels to check`);
     
-    // 2. Get tasks that currently have the "recently updated" label  
-    console.log(`Fetching tasks with "${RECENTLY_UPDATED_LABEL}" label...`);
-    const currentlyUpdatedTasksResponse = await api.getTasks({ label: RECENTLY_UPDATED_LABEL });
-    const currentlyUpdatedTasks = currentlyUpdatedTasksResponse.results;
+    // Process each task to determine if labels should be removed
+    const tasksToUpdate: Task[] = [];
     
-    // 3. Since Todoist doesn't have a direct "created after" filter, we'll get tasks from the last few days
-    // and filter them. This is still more efficient than getting ALL tasks.
-    console.log("Fetching recent tasks to check for recent creation/modification...");
-    
-    // Get tasks created in the last 7 days - this gives us a reasonable working set
-    // instead of fetching ALL tasks from the entire account
-    const recentTasksResponse = await api.getTasksByFilter({ 
-      query: "created after: -7 days" 
-    });
-    const recentTasks = recentTasksResponse.results;
-    
-    // Filter for tasks created within our 24-hour threshold
-    const recentCreatedTasks = recentTasks.filter((task: Task) => {
-      const createdDate = new Date(task.addedAt || '');
-      return createdDate >= recentThreshold;
-    });
-    
-    // Filter for tasks modified recently (but not just created)
-    const recentModifiedTasks = recentTasks.filter((task: Task) => {
-      if (!task.updatedAt) return false;
-      
-      const updatedDate = new Date(task.updatedAt);
-      const createdDate = new Date(task.addedAt || '');
-      
-      // Task was updated recently AND the update time is different from creation time
-      return updatedDate >= recentThreshold && updatedDate.getTime() !== createdDate.getTime();
-    });
-    
-    console.log(`Found ${currentlyCreatedTasks.length} tasks with "recently created" label`);
-    console.log(`Found ${currentlyUpdatedTasks.length} tasks with "recently updated" label`);
-    console.log(`Found ${recentCreatedTasks.length} recently created tasks`);
-    console.log(`Found ${recentModifiedTasks.length} recently modified tasks`);
-    
-    // Create a map to track all tasks we need to process
-    const tasksToProcess = new Map<string, Task>();
-    
-    // Add all tasks with current labels
-    currentlyCreatedTasks.forEach((task: Task) => {
-      tasksToProcess.set(task.id, task);
-    });
-    currentlyUpdatedTasks.forEach((task: Task) => {
-      tasksToProcess.set(task.id, task);
-    });
-    
-    // Add all recently created and modified tasks
-    recentCreatedTasks.forEach((task: Task) => {
-      tasksToProcess.set(task.id, task);
-    });
-    recentModifiedTasks.forEach((task: Task) => {
-      tasksToProcess.set(task.id, task);
-    });
-    
-    console.log(`Processing ${tasksToProcess.size} unique tasks...`);
-    
-    // Process each task to determine if it should have recent labels
-    const tasksToUpdate: TaskUpdateInfo[] = [];
-    
-    for (const task of tasksToProcess.values()) {
-      // Use the correct property names from the Task type: addedAt and updatedAt
+    for (const task of tasksToCheck.values()) {
       const createdDate = new Date(task.addedAt || '');
       const updatedDate = new Date(task.updatedAt || task.addedAt || '');
       
       const isRecentlyCreated = createdDate >= recentThreshold;
       const isRecentlyUpdated = updatedDate >= recentThreshold && updatedDate.getTime() !== createdDate.getTime();
       
-      const currentlyHasCreatedLabel = task.labels?.includes(recentlyCreatedLabel.name) || false;
-      const currentlyHasUpdatedLabel = task.labels?.includes(recentlyUpdatedLabel.name) || false;
+      const currentlyHasCreatedLabel = recentlyCreatedLabel && task.labels?.includes(recentlyCreatedLabel.name) || false;
+      const currentlyHasUpdatedLabel = recentlyUpdatedLabel && task.labels?.includes(recentlyUpdatedLabel.name) || false;
       
-      // Debug logging to help diagnose label removal
-      if (currentlyHasCreatedLabel || currentlyHasUpdatedLabel) {
-        console.log(`\nDebugging task "${task.content}" (${task.id}):`);
-        console.log(`  Created: ${task.addedAt} -> isRecent: ${isRecentlyCreated}`);
-        console.log(`  Updated: ${task.updatedAt} -> isRecent: ${isRecentlyUpdated}`);
-        console.log(`  Has created label: ${currentlyHasCreatedLabel} -> should have: ${isRecentlyCreated}`);
-        console.log(`  Has updated label: ${currentlyHasUpdatedLabel} -> should have: ${isRecentlyUpdated}`);
-        console.log(`  Current labels: [${task.labels?.join(', ')}]`);
+      let shouldRemoveLabels = false;
+      
+      // Remove "recently created" label if task is no longer recently created
+      if (currentlyHasCreatedLabel && !isRecentlyCreated) {
+        shouldRemoveLabels = true;
+        console.log(`Task "${task.content}" (${task.id}) is no longer recently created - removing label`);
       }
       
-      // Only track tasks that need changes
-      if (
-        isRecentlyCreated !== currentlyHasCreatedLabel ||
-        isRecentlyUpdated !== currentlyHasUpdatedLabel
-      ) {
-        tasksToUpdate.push({
-          task,
-          shouldHaveCreatedLabel: isRecentlyCreated,
-          shouldHaveUpdatedLabel: isRecentlyUpdated,
-          currentlyHasCreatedLabel,
-          currentlyHasUpdatedLabel
-        });
+      // Remove "recently updated" label if task is no longer recently updated
+      if (currentlyHasUpdatedLabel && !isRecentlyUpdated) {
+        shouldRemoveLabels = true;
+        console.log(`Task "${task.content}" (${task.id}) is no longer recently updated - removing label`);
+      }
+      
+      if (shouldRemoveLabels) {
+        tasksToUpdate.push(task);
       }
     }
     
-    console.log(`Found ${tasksToUpdate.length} tasks that need label updates`);
+    console.log(`Found ${tasksToUpdate.length} tasks that need label cleanup`);
     
-    // Update tasks with correct labels
+    // Update tasks by removing stale labels
     let updatedCount = 0;
-    for (const { task, shouldHaveCreatedLabel, shouldHaveUpdatedLabel } of tasksToUpdate) {
+    for (const task of tasksToUpdate) {
       try {
-        // Build the new labels array
+        // Build the new labels array by removing stale recent labels
         const newLabels = [...(task.labels || [])];
+        let labelsChanged = false;
         
-        // Handle recently created label
-        if (shouldHaveCreatedLabel && !newLabels.includes(recentlyCreatedLabel.name)) {
-          newLabels.push(recentlyCreatedLabel.name);
-        } else if (!shouldHaveCreatedLabel && newLabels.includes(recentlyCreatedLabel.name)) {
-          const index = newLabels.indexOf(recentlyCreatedLabel.name);
-          newLabels.splice(index, 1);
+        // Remove "recently created" label if task is no longer recently created
+        if (recentlyCreatedLabel && newLabels.includes(recentlyCreatedLabel.name)) {
+          const createdDate = new Date(task.addedAt || '');
+          const isRecentlyCreated = createdDate >= recentThreshold;
+          
+          if (!isRecentlyCreated) {
+            const index = newLabels.indexOf(recentlyCreatedLabel.name);
+            newLabels.splice(index, 1);
+            labelsChanged = true;
+          }
         }
         
-        // Handle recently updated label
-        if (shouldHaveUpdatedLabel && !newLabels.includes(recentlyUpdatedLabel.name)) {
-          newLabels.push(recentlyUpdatedLabel.name);
-        } else if (!shouldHaveUpdatedLabel && newLabels.includes(recentlyUpdatedLabel.name)) {
-          const index = newLabels.indexOf(recentlyUpdatedLabel.name);
-          newLabels.splice(index, 1);
+        // Remove "recently updated" label if task is no longer recently updated
+        if (recentlyUpdatedLabel && newLabels.includes(recentlyUpdatedLabel.name)) {
+          const updatedDate = new Date(task.updatedAt || task.addedAt || '');
+          const createdDate = new Date(task.addedAt || '');
+          const isRecentlyUpdated = updatedDate >= recentThreshold && updatedDate.getTime() !== createdDate.getTime();
+          
+          if (!isRecentlyUpdated) {
+            const index = newLabels.indexOf(recentlyUpdatedLabel.name);
+            newLabels.splice(index, 1);
+            labelsChanged = true;
+          }
         }
         
         // Update the task if labels changed
-        if (JSON.stringify(newLabels.sort()) !== JSON.stringify((task.labels || []).sort())) {
+        if (labelsChanged) {
           await api.updateTask(task.id, { labels: newLabels });
           updatedCount++;
           
-          console.log(
-            `Updated task "${task.content}" (${task.id}): ` +
-            `created=${shouldHaveCreatedLabel ? '✓' : '✗'}, ` +
-            `updated=${shouldHaveUpdatedLabel ? '✓' : '✗'}`
-          );
+          console.log(`Cleaned up labels for task "${task.content}" (${task.id})`);
         }
         
         // Add a small delay to avoid rate limiting
@@ -220,8 +162,8 @@ export async function main() {
       }
     }
     
-    console.log(`Successfully updated ${updatedCount} tasks`);
-    console.log("Todoist recent tasks labeling process completed!");
+    console.log(`Successfully cleaned up labels on ${updatedCount} tasks`);
+    console.log("Todoist recent tasks label cleanup process completed!");
     
   } catch (error) {
     console.error("Error in main process:", error);

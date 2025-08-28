@@ -4,8 +4,8 @@
   },
   "tasks": {
     "run": "deno run --allow-net --allow-env main.ts",
-    "test": "deno test --allow-net --allow-env",
-    "check": "deno check main.ts test.ts",
+    "test": "deno run --allow-net --allow-env test-webhook.ts",
+    "check": "deno check main.ts test-webhook.ts",
     "compile": "deno compile --allow-net --allow-env --output todoist-recent main.ts"
   }
 }
