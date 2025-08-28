@@ -2,6 +2,8 @@
 
 A complete system for automatically managing "recent" labels on Todoist tasks, consisting of a real-time webhook service and a periodic maintenance service.
 
+> **Note**: This project is new and doesn't have a lot of real-world testing yet. You may encounter bugs or unexpected behavior.
+
 ## Architecture
 
 This project uses a two-service architecture for optimal performance and reliability:
