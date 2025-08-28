@@ -38,18 +38,13 @@ interface WebhookPayload {
 
 /**
  * Verify webhook signature using HMAC-SHA256
+ * Todoist sends the signature as a base64-encoded HMAC-SHA256 hash
  */
 async function verifyWebhookSignature(
   payload: string,
   signature: string,
   secret: string
 ): Promise<boolean> {
-  if (!signature.startsWith("sha256=")) {
-    return false;
-  }
-
-  const expectedSignature = signature.slice(7);
-  
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -65,11 +60,11 @@ async function verifyWebhookSignature(
     encoder.encode(payload)
   );
 
-  const actualSignature = Array.from(new Uint8Array(signature_bytes))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
+  // Convert the computed signature to base64
+  const actualSignature = btoa(String.fromCharCode(...new Uint8Array(signature_bytes)));
 
-  return actualSignature === expectedSignature;
+  // Compare with the provided signature
+  return actualSignature === signature;
 }
 
 /**
