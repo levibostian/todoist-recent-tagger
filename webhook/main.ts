@@ -128,6 +128,25 @@ async function addRecentlyCreatedLabel(taskId: string) {
 }
 
 /**
+ * Check if only non-meaningful fields were updated (like labels)
+ */
+function isOnlyTrivialUpdate(oldItem: Task | undefined, newItem: Task): boolean {
+  if (!oldItem) return false;
+  
+  // Check if any meaningful fields changed
+  const meaningfulFieldsChanged = 
+    oldItem.content !== newItem.content || // task title 
+    oldItem.description !== newItem.description ||
+    oldItem.due !== newItem.due || // due date 
+    oldItem.priority !== newItem.priority || 
+    oldItem.parentId !== newItem.parentId || // subtask relationship 
+    oldItem.projectId !== newItem.projectId; // which project task belongs to 
+      
+  // If no meaningful fields changed, this is a trivial update (like labels only)
+  return !meaningfulFieldsChanged;
+}
+
+/**
  * Add the "recently updated" label to a task
  */
 async function addRecentlyUpdatedLabel(taskId: string) {
@@ -167,6 +186,13 @@ async function handleWebhook(payload: WebhookPayload) {
       break;
     
     case "item:updated": {
+      // Check if only trivial fields (like labels) were updated
+      const oldItem = payload.event_data_extra?.old_item;
+      if (isOnlyTrivialUpdate(oldItem, payload.event_data)) {
+        console.log(`Skipping "recently updated" label - only trivial fields updated for task ${payload.event_data.id}`);
+        break;
+      }
+      
       // Only add the "recently updated" label if this was an actual user update
       // (not a completion of a recurring task or similar)
       const updateIntent = payload.event_data_extra?.update_intent;
