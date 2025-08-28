@@ -124,15 +124,7 @@ deno cache deno.json
 
 ### Running Tests
 
-```bash
-# Webhook service
-cd webhook
-deno task test
-
-# Maintainer service
-cd maintainer  
-deno task test
-```
+At this time, testing of this application is done by running the server and QA testing using the Todoist API. 
 
 ### Type Checking
 
